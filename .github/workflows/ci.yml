@@ -15,7 +15,7 @@ concurrency:
   cancel-in-progress: true
 
 env:
-  NODE_VERSION: '18'
+  NODE_VERSION: '20'
 
   # puppeteer is declared in package.json but every use of it is commented out
   # (load.service.ts:727, the webhook() body). Downloading Chromium for it would add

@@ -84,21 +84,36 @@ first resolved and would go on running a release directory the prune step later 
 
 ### On the server, once
 
+MobileAPI runs on the SAME box as AdminAPI, eBayAPI and the React build, reached at
+**mobileapinew.autochecker.com** and proxied by nginx to localhost:3001. Ports 3003
+(AdminAPI), 4200 (eBayAPI) and 3001 are never opened in the security group.
+
+```bash
+bash .github/server-setup.sh
+```
+
+That script is additive on purpose. It does not install Node — the box is pinned to Node
+20 by AdminAPI's setup script, which *replaces* node when the major differs, so a second
+script installing another major would downgrade AdminAPI and eBayAPI under them. It also
+writes its own nginx file rather than the shared `autochecker` one, which AdminAPI's
+script overwrites wholesale.
+
+It leaves this behind:
+
 ```
 /var/www/autochecker/mobileapi/
-  shared/.env        # created by hand from .env.example - the deploy fails without it
+  shared/.env        # MONGO_URI blank - fill it in, the deploy fails without it
   shared/logs/
   releases/
   current -> releases/<sha>
 ```
 
-## Known rough edges
+Then point DNS at the box, run `sudo certbot --nginx -d mobileapinew.autochecker.com`,
+and set the three GitHub secrets.
 
-- `npm test` is not a CI gate. The two spec files are `nest g` scaffolding and have never
-  passed; `app.controller.spec.ts` also fails type-check, which is why `npm run typecheck`
-  targets `tsconfig.build.json` (what `nest build` actually compiles).
-- `setting.service.ts` reads `./newEbay.xlsx`, which is not in the repository. `ExcelUpload()`
-  throws if called. Pre-existing.
-- `puppeteer`, `firebase-admin` and `razorpay` are declared but never imported. `httpsMode.ts`
-  exports a Razorpay helper that nothing calls.
-- The JWT secret in `src/auth/constants.ts` is still a literal. Known, deferred.
+### Before the first production deploy
+
+The Azure MobileAPI at `managemobileapi.autochecker.com` is still live and the Logic App
+crons still call it. Repoint those crons at the new domain and stop the Azure service **in
+the same change** — two MobileAPIs running at once means two services writing
+`productdetails` and `stockhistories` from stale reads, with nothing on screen to say so.

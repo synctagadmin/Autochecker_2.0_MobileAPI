@@ -17,7 +17,7 @@ concurrency:
   cancel-in-progress: false   # never cancel a prod deploy mid-flight
 
 env:
-  NODE_VERSION: '18'
+  NODE_VERSION: '20'
   APP_DIR: /var/www/autochecker/mobileapi
   PM2_APP: autochecker-mobile-api
   ENV_PROFILE: production
