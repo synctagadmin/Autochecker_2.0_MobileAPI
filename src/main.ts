@@ -31,8 +31,12 @@ async function bootstrap() {
   const document = SwaggerModule.createDocument(app, config);
   SwaggerModule.setup('api', app, document);
 
-  await app.listen(3001, '0.0.0.0', function () {
-    console.log('Listening to port:  ' + 3001);
+  // PORT comes from the environment profile (config/env.profiles.json) or the deployment's
+  // .env; 3001 is what this service has always listened on and stays the default, so an
+  // existing deployment that sets nothing behaves exactly as before.
+  const port = Number(process.env.PORT) || 3001;
+  await app.listen(port, '0.0.0.0', function () {
+    console.log('Listening to port:  ' + port);
   });
 }
 bootstrap();

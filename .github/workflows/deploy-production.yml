@@ -1,0 +1,158 @@
+name: Deploy Production
+
+# Production ships on a push to the `production` branch - merging into that branch IS the
+# deploy. The GitHub `production` environment holds the approval gate, so the job pauses
+# for a reviewer before it touches the live box.
+#
+#   git checkout production && git pull
+#   git merge --ff-only staging        # or cherry-pick the commits you want
+#   git push origin production
+on:
+  push:
+    branches: [production]
+  workflow_dispatch: {}
+
+concurrency:
+  group: deploy-production
+  cancel-in-progress: false   # never cancel a prod deploy mid-flight
+
+env:
+  NODE_VERSION: '18'
+  APP_DIR: /var/www/autochecker/mobileapi
+  PM2_APP: autochecker-mobile-api
+  ENV_PROFILE: production
+  KEEP_RELEASES: '5'
+  PUPPETEER_SKIP_DOWNLOAD: '1'
+  PUPPETEER_SKIP_CHROMIUM_DOWNLOAD: '1'
+
+jobs:
+  build-and-deploy:
+    runs-on: ubuntu-latest
+    # Add required reviewers to the `production` environment in GitHub so this job
+    # pauses for manual approval before it touches the live box.
+    environment: production
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: npm
+
+      - run: npm ci --legacy-peer-deps
+
+      - name: Type-check
+        run: npm run typecheck
+
+      - name: Build
+        run: npm run build
+      - name: Check environment profile guards
+        run: npm run env:check
+
+      - name: Assemble deploy payload
+        run: |
+          set -euo pipefail
+          mkdir -p payload
+          cp -r dist payload/
+          cp package.json package-lock.json ecosystem.config.js payload/
+          # scripts/ and config/ ship too: the release runs env:validate on the server,
+          # and with-env.js + env.profiles.json are what that check reads.
+          cp -r scripts payload/
+          cp -r config payload/
+          ls -la payload
+
+      - name: Ship to production and restart
+        uses: easingthemes/ssh-deploy@v5.1.2
+        with:
+          SSH_PRIVATE_KEY: ${{ secrets.PROD_SSH_KEY }}
+          REMOTE_HOST: ${{ secrets.PROD_HOST }}
+          REMOTE_USER: ${{ secrets.PROD_USER }}
+          SOURCE: "payload/"
+          TARGET: "${{ env.APP_DIR }}/releases/${{ github.sha }}"
+          ARGS: "-rltDzv"
+          SCRIPT_AFTER_REQUIRED: true
+          SCRIPT_AFTER: |
+            set -euo pipefail
+
+            # Node may come from nvm or from NodeSource apt. Source nvm only when present:
+            # an unconditional `nvm use` is "command not found" on a box without it, which
+            # aborts the whole script under set -e.
+            export NVM_DIR="$HOME/.nvm"
+            if [ -s "$NVM_DIR/nvm.sh" ]; then
+              . "$NVM_DIR/nvm.sh"
+              nvm use ${{ env.NODE_VERSION }}
+            fi
+            echo "Node: $(node -v)  npm: $(npm -v)  pm2: $(pm2 --version)"
+
+            APP="${{ env.APP_DIR }}"
+            REL="$APP/releases/${{ github.sha }}"
+
+            mkdir -p "$APP/shared/logs"
+            if [ ! -f "$APP/shared/.env" ]; then
+              echo "ERROR: $APP/shared/.env does not exist."
+              echo "Create it from .env.example. MONGO_URI and SCRAPER_URL are required."
+              exit 1
+            fi
+
+            PREV=""
+            [ -L "$APP/current" ] && PREV="$(readlink -f "$APP/current" || true)"
+
+            ln -sfn "$APP/shared/.env" "$REL/.env"
+            ln -sfn "$APP/shared/logs" "$REL/logs"
+
+            cd "$REL"
+            npm ci --omit=dev --legacy-peer-deps
+
+            # The app binds PORT from .env (main.ts falls back to 3001), so read it from
+            # the deployed file rather than hardcoding it - otherwise the probe below
+            # silently drifts from what the process actually listens on.
+            APP_PORT="$(grep -m1 -oE '^[[:space:]]*PORT=[0-9]+' "$APP/shared/.env" | grep -oE '[0-9]+' || true)"
+            APP_PORT="${APP_PORT:-3001}"
+            echo "Expecting the service on port ${APP_PORT}"
+
+            # ── The gate ──────────────────────────────────────────────────────────────
+            # Resolve this release's .env against the production profile BEFORE it becomes
+            # current. It checks MONGO_URI names autocheckerpartsclone (the LIVE
+            # database - NOT autocheckerpartsclonenew, which is staging despite the name)
+            # and that every upstream resolves. A release that fails here never starts,
+            # and `current` is untouched.
+            node scripts/with-env.js ${{ env.ENV_PROFILE }} --validate
+
+            ln -sfn "$REL" "$APP/current"
+            cd "$APP/current"
+
+            # Recreated, not reloaded. pm2's reload keeps the cwd it resolved when the
+            # process was first created - through the `current` symlink - so a reloaded
+            # process goes on running an older release directory, which the prune step at
+            # the end of this script later deletes out from under it.
+            pm2 delete "${{ env.PM2_APP }}" >/dev/null 2>&1 || true
+            pm2 start ecosystem.config.js --update-env
+            pm2 save
+
+            # Liveness: MobileAPI has no /health route, and every real route is behind a
+            # guard, so any HTTP status at all proves the process is listening. curl
+            # writes 000 when it cannot connect; anything else is an answer.
+            ok=""
+            for i in $(seq 1 30); do
+              code="$(curl -s -o /dev/null -w '%{http_code}' --max-time 3 "http://127.0.0.1:${APP_PORT}/api" 2>/dev/null || echo 000)"
+              if [ "$code" != "000" ]; then ok=1; echo "Port ${APP_PORT} answering (HTTP ${code})"; break; fi
+              sleep 2
+            done
+
+            if [ -z "$ok" ]; then
+              echo "::error::Nothing listening on ${APP_PORT} after 60s - rolling back"
+              pm2 logs "${{ env.PM2_APP }}" --lines 80 --nostream || true
+              if [ -n "$PREV" ] && [ -d "$PREV" ]; then
+                ln -sfn "$PREV" "$APP/current"
+                cd "$APP/current"
+                pm2 delete "${{ env.PM2_APP }}" >/dev/null 2>&1 || true
+                pm2 start ecosystem.config.js --update-env
+                pm2 save
+                echo "::error::Rolled back to $PREV"
+              fi
+              exit 1
+            fi
+
+            echo "Deployment healthy: ${{ github.sha }}"
+            ls -1dt "$APP"/releases/*/ | tail -n +$(( ${{ env.KEEP_RELEASES }} + 1 )) | xargs -r rm -rf

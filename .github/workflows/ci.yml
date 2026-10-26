@@ -1,0 +1,60 @@
+name: CI
+
+# Validates every pull request and every push to a branch that does NOT deploy.
+# `staging` and `production` are handled by their own deploy workflows, which run the
+# same build steps before they ship anything.
+on:
+  pull_request:
+  push:
+    branches-ignore:
+      - staging
+      - production
+
+concurrency:
+  group: ci-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  NODE_VERSION: '18'
+
+  # puppeteer is declared in package.json but every use of it is commented out
+  # (load.service.ts:727, the webhook() body). Downloading Chromium for it would add
+  # ~300 MB and a minute to every run for a dependency the code never imports.
+  PUPPETEER_SKIP_DOWNLOAD: '1'
+  PUPPETEER_SKIP_CHROMIUM_DOWNLOAD: '1'
+
+jobs:
+  build-and-check:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: npm
+
+      - name: Install dependencies
+        run: npm ci --legacy-peer-deps
+
+      - name: Type-check
+        run: npm run typecheck
+
+      - name: Build
+        run: npm run build
+
+      # The profiles are configuration, and a wrong database name in them would only
+      # surface at deploy time otherwise. This asserts the cross-environment refusals
+      # still hold - production must not accept the staging database, staging must not
+      # accept the production scraper. Pure: no credentials, nothing contacted.
+      - name: Check environment profile guards
+        run: npm run env:check
+
+      # `npm test` is NOT a gate. The two spec files are the `nest g` scaffolding tests
+      # (app.controller.spec.ts, product.controller.spec.ts); they instantiate a
+      # controller with no providers mocked and have never passed. Gating a deploy on
+      # them would mean nothing could ever ship. Making them real is worth doing, and is
+      # the moment to turn this into a gate.
