@@ -1206,10 +1206,9 @@ export class productService {
                 partImages: userInfo.partImages,
                 location: userInfo.location,
                 boxNumber: userInfo.boxNumber,
-                // The SAME endpoint reaches here when the part number already exists and
-                // the quantities are merged, so these have to be normalised in both
-                // places - otherwise adding to an existing part writes the old shape
-                // straight back over a migrated record.
+                // The edit path (/product/updateProduct). It has to normalise exactly as
+                // /product/addProduct does - otherwise editing any field on a migrated
+                // product writes the old shape straight back over color and texture.
                 color: toObjectArray(userInfo.color),
                 placement: userInfo.placement.replace(/\s?$/, ''),
                 condition: userInfo.condition,
