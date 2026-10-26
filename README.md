@@ -84,19 +84,26 @@ first resolved and would go on running a release directory the prune step later 
 
 ### On the server, once
 
-MobileAPI runs on the SAME box as AdminAPI, eBayAPI and the React build, reached at
-**mobileapinew.autochecker.com** and proxied by nginx to localhost:3001. Ports 3003
-(AdminAPI), 4200 (eBayAPI) and 3001 are never opened in the security group.
+MobileAPI runs on the same box as AdminAPI, eBayAPI and the React build, reached at
+**mobileapinew.autochecker.com** and proxied by nginx to localhost:3001.
+
+**TLS is not configured on this box and certbot is not used.** Every host here sits
+behind CloudFront, which terminates HTTPS with an ACM certificate and then fetches from
+the origin over plain HTTP. An ACM certificate cannot be installed on nginx — AWS never
+releases the private key — so nginx serves `:80` only.
+
+Because that second hop is unencrypted, inbound `:80` should be restricted to
+CloudFront's managed prefix list (`com.amazonaws.global.cloudfront.origin-facing`).
+Ports 3001, 3003 and 4200 are never opened at all; nginx reaches them over loopback.
+
+There is **one** nginx file, `/etc/nginx/sites-available/autochecker`, owned by
+`AutoChecker-AdminAPI/.github/server-setup.sh` — it writes the file with `tee`, so a
+second file in `sites-enabled`, or an edit made anywhere else, is wiped the next time
+that script runs. The `mobileapinew` block lives in it alongside the other three.
 
 ```bash
-bash .github/server-setup.sh
+bash .github/server-setup.sh    # dirs and shared/.env only - never touches nginx
 ```
-
-That script is additive on purpose. It does not install Node — the box is pinned to Node
-20 by AdminAPI's setup script, which *replaces* node when the major differs, so a second
-script installing another major would downgrade AdminAPI and eBayAPI under them. It also
-writes its own nginx file rather than the shared `autochecker` one, which AdminAPI's
-script overwrites wholesale.
 
 It leaves this behind:
 
@@ -108,8 +115,8 @@ It leaves this behind:
   current -> releases/<sha>
 ```
 
-Then point DNS at the box, run `sudo certbot --nginx -d mobileapinew.autochecker.com`,
-and set the three GitHub secrets.
+Then add `mobileapinew.autochecker.com` as an alternate domain name on the CloudFront
+distribution, set its **Origin protocol to HTTP only**, and set the three GitHub secrets.
 
 ### Before the first production deploy
 

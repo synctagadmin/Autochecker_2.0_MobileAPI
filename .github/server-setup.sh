@@ -1,39 +1,31 @@
 #!/usr/bin/env bash
-# One-time preparation for MobileAPI on the EXISTING AutoChecker application host.
+# One-time preparation for MobileAPI on the shared AutoChecker application host.
 #
-# This box already runs, behind one nginx:
-#   managenew.autochecker.com     -> static React build
-#   adminapinew.autochecker.com   -> AdminAPI  on localhost:3003
-#   ebayapinew.autochecker.com    -> eBayAPI   on localhost:4200
-# plus Redis on localhost:6379. This script ADDS:
-#   mobileapinew.autochecker.com  -> MobileAPI on localhost:3001
+# This script does NOT touch nginx. There is exactly ONE nginx file on that box,
+# /etc/nginx/sites-available/autochecker, and it is owned by
+# AutoChecker-AdminAPI/.github/server-setup.sh, which writes it with `tee` - so a
+# second file, or an edit made here, is wiped the next time that script runs. The
+# mobileapinew server block lives there, alongside the other three.
 #
-# It is deliberately additive. Two things it does NOT do, both of which would
-# break the services already running here:
+# It also does NOT configure TLS, and certbot is not used. Every host on this box is
+# behind CloudFront, which terminates HTTPS with an ACM certificate and fetches from
+# the origin over plain HTTP. An ACM certificate cannot be installed on nginx - AWS
+# never releases the private key - so nginx serves :80 only.
 #
-#   1. It does NOT install or change Node. AdminAPI's server-setup.sh pins the box
-#      to Node 20 and REPLACES node when the major differs, so a second script
-#      installing a different major would silently downgrade AdminAPI and eBayAPI
-#      under them. This one asserts the version and stops if it is wrong.
-#   2. It does NOT write /etc/nginx/sites-available/autochecker. That file is
-#      written with `tee` by AdminAPI's setup script, so anything appended to it
-#      is lost the next time that script runs - and anything this script wrote
-#      over it would take the other three sites down. MobileAPI gets its own file.
-#
-# Run once, as a sudo-capable user, BEFORE the first deploy:
+# Run once, as a sudo-capable user, AFTER AdminAPI's server-setup.sh and BEFORE the
+# first deploy:
 #   bash server-setup.sh
 set -euo pipefail
 
 NODE_MAJOR=20                       # must match NODE_VERSION in the deploy workflows
 APP_DIR=/var/www/autochecker/mobileapi
-DOMAIN=mobileapinew.autochecker.com
 APP_PORT=3001
 
 echo "==> Checking what is already here"
 
 if ! command -v node >/dev/null; then
   echo "ERROR: node is not installed. Run AdminAPI's server-setup.sh first - it owns"
-  echo "       Node, pm2, nginx and Redis on this box."
+  echo "       Node, pm2 and nginx on this box."
   exit 1
 fi
 
@@ -57,6 +49,11 @@ if command -v ss >/dev/null && ss -ltn "( sport = :${APP_PORT} )" | grep -q ":${
   echo "ERROR: something is already listening on ${APP_PORT}."
   ss -ltnp "( sport = :${APP_PORT} )" || true
   exit 1
+fi
+
+if ! grep -q "mobileapinew" /etc/nginx/sites-available/autochecker 2>/dev/null; then
+  echo "WARNING: /etc/nginx/sites-available/autochecker has no mobileapinew block."
+  echo "         Re-run AdminAPI's server-setup.sh - it owns that file."
 fi
 
 echo "==> Directory layout"
@@ -83,54 +80,25 @@ else
   echo "    $APP_DIR/shared/.env already exists; left alone."
 fi
 
-echo "==> nginx server block (its own file - the shared one is not touched)"
-# Port 3001 is NEVER opened in the security group; nginx reaches it over loopback,
-# exactly as it does for AdminAPI and eBayAPI.
-sudo tee /etc/nginx/sites-available/autochecker-mobileapi >/dev/null <<NGINX
-server {
-    listen 80;
-    server_name ${DOMAIN};
-    client_max_body_size 50M;      # xlsx uploads (setting.service ExcelUpload)
-
-    location / {
-        proxy_pass http://127.0.0.1:${APP_PORT};
-        proxy_http_version 1.1;
-        proxy_set_header Host              \$host;
-        proxy_set_header X-Real-IP         \$remote_addr;
-        proxy_set_header X-Forwarded-For   \$proxy_add_x_forwarded_for;
-        proxy_set_header X-Forwarded-Proto \$scheme;
-        # The loader sweeps scrape while the request is open; the default 60s cuts
-        # them off mid-part.
-        proxy_read_timeout 300s;
-    }
-}
-NGINX
-
-sudo ln -sfn /etc/nginx/sites-available/autochecker-mobileapi /etc/nginx/sites-enabled/autochecker-mobileapi
-sudo nginx -t
-sudo systemctl reload nginx
-
 cat <<DONE
 
 ==> Done.
 
-Still to do, in this order:
+Still to do:
 
-  1. DNS: point ${DOMAIN} at this box, then
-         sudo certbot --nginx -d ${DOMAIN}
-     certbot rewrites the block above for TLS and sets up renewal.
-
-  2. Fill in MONGO_URI in ${APP_DIR}/shared/.env.
+  1. Fill in MONGO_URI in ${APP_DIR}/shared/.env.
      Production requires autocheckerpartsclone. Check before deploying:
          cd ${APP_DIR}/current && node scripts/with-env.js production --status
+
+  2. CloudFront: mobileapinew.autochecker.com must be an alternate domain name on
+     the distribution, and its Origin protocol must be HTTP only.
 
   3. GitHub secrets on the MobileAPI repository:
          PROD_SSH_KEY / PROD_HOST / PROD_USER   -> this box
 
   4. Push the production branch. That is the deploy.
 
-  5. Repoint the Azure Logic App crons from managemobileapi.autochecker.com to
-     ${DOMAIN}, and STOP the Azure MobileAPI in the same change. Both running at
-     once means two services writing productdetails and stockhistories from stale
-     reads - the lost-update failure, with nothing on screen to say so.
+  5. Repoint the Azure Logic App crons at mobileapinew.autochecker.com and STOP the
+     Azure MobileAPI in the same change. Both running at once means two services
+     writing productdetails and stockhistories from stale reads.
 DONE
