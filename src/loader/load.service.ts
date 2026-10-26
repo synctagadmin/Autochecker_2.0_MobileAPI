@@ -194,11 +194,27 @@ export class LoadService {
 
   }
 
+  /**
+   * Base URL of the scraper service, with a guaranteed trailing slash.
+   *
+   * Set SCRAPER_URL per environment (same variable name AdminAPI uses). The default is the
+   * AWS scraper-v2 box, which nginx fronts with TLS on behalf of its :3050 listener.
+   *
+   * This used to be hard-coded to the retired Azure scrapers on :3000 -
+   * http://20.204.137.250:3000/ (staging) and http://20.7.146.191:3000/ (production).
+   * Both the old service and scraper-v2 answer the same /get<Brand>?id=<partNumber> shape,
+   * so only the host changes here.
+   */
+  private scraperBase(): string {
+    const raw = process.env.SCRAPER_URL || 'https://scrapernew.autochecker.com/';
+    return raw.endsWith('/') ? raw : raw + '/';
+  }
+
   async getScrapValue(data: string, partNumber: string) {
     if (data == 'getAlfaRomeo') {
       data = 'getDodge';
     }
-    return await axios.get('http://20.204.137.250:3000/' + data + '?id=' + partNumber)   // prod: http://20.7.146.191:3000/
+    return await axios.get(this.scraperBase() + data + '?id=' + partNumber)
       .then(async (res) => {
         // console.log(`Status: ${res.status}`);
         console.log('Body: ', res.data);
