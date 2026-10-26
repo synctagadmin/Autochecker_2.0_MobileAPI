@@ -47,3 +47,6 @@ lerna-debug.log*
 private.key
 generated-private-key.txt
 generated-csr.txt
+
+# Migration backups and reports
+/reports
