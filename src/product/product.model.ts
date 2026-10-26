@@ -16,6 +16,9 @@ export const ProductDetailsSchema = new mongoose.Schema({
     baseImageURL: { type: String },
     boxNumber: { type: String },
     location: { type: String },
+    // Multi-select: an ARRAY of {Id, name, colorCode}. Declared Object (i.e. Mixed), which
+    // already accepts both this and the single object it used to hold, so documents
+    // written before the change still hydrate. See util/partFields.ts.
     color: { type: Object },
     placement: { type: String },
     condition: { type: String },
@@ -27,7 +30,21 @@ export const ProductDetailsSchema = new mongoose.Schema({
     loadedDate: { type: Number },
     itemID: { type: String },
     itemUploadDate: { type: Number },
-    texture: { type: String },
+    // Multi-select: an ARRAY of strings. Mixed rather than Array because every product
+    // written before this change holds a bare string here, and a String-typed path would
+    // mis-cast the array while an Array-typed one throws a CastError hydrating the old
+    // value. Mixed reads both; util/partFields.ts normalises.
+    texture: { type: mongoose.Schema.Types.Mixed },
+    // Multi-select: an ARRAY of strings, drawn from settings.OtherInfo.Finish. New field,
+    // so it is absent on every existing document - readers must treat that as [].
+    finish: { type: mongoose.Schema.Types.Mixed },
+    // Shipping weight (lbs + oz) and package dimensions in inches. Absent on existing
+    // documents; absent in a request means "leave alone", not zero.
+    lbs: { type: Number },
+    oz: { type: Number },
+    length: { type: Number },
+    width: { type: Number },
+    height: { type: Number },
     notes: { type: String },
     adminId: { type: mongoose.Types.ObjectId, require: true, ref: "admindetail" },
     adminName: { type: String },

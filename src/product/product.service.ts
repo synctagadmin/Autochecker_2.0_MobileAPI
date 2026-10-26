@@ -8,6 +8,7 @@ import { AUTO_ERRORMSG, SPARK_NOTIFY, stockHistoryMsg, colorCode } from 'src/uti
 import { BASE64String, encryptDataAccount, getDate, getSuccess, randomString, sleep } from '../util/utils';
 
 import { decryptData, encryptData } from '../util/utils';
+import { toStringArray, toObjectArray, measurementFields, validatePartFields } from '../util/partFields';
 
 import { SettingService } from 'src/setting/setting.service';
 import { UsersService } from 'src/users/users.service';
@@ -48,6 +49,11 @@ export class productService {
 
 
     async createProductDetails(userInfo: any, userId: string) {
+
+        // Shape only, before anything is written. Values are deliberately NOT checked
+        // against the OtherInfo lists: Texture and Finish both carry an "Other" option
+        // whose purpose is to let the user type something that is not in the list.
+        validatePartFields(userInfo);
 
         var new1 = await this.usersService.ValidateUser(userId);
 
@@ -154,12 +160,17 @@ export class productService {
                 baseImageURL: userInfo.baseImageURL,
                 location: userInfo.location,
                 boxNumber: userInfo.boxNumber,
-                color: Object.keys(userInfo.color).length != 0 ? userInfo.color : {},
+                // Multi-select now. toObjectArray also removes a crash that was already
+                // here: Object.keys(undefined) throws, so a request omitting `color`
+                // failed with a 500 rather than saving without one.
+                color: toObjectArray(userInfo.color),
                 placement: userInfo.placement.replace(/\s?$/, ''),
                 condition: userInfo.condition,
                 conditionId: userInfo.conditionId,
                 notes: userInfo.notes,
-                texture: userInfo.texture,
+                texture: toStringArray(userInfo.texture),
+                finish: toStringArray(userInfo.finish),
+                ...measurementFields(userInfo),
                 isProductStatus: 0,
                 isLoadStatus: findScrapExists == 0 ? 0 : -2,
                 relistFlag: color ? color : 'Red',
@@ -531,11 +542,20 @@ export class productService {
                     partImages: value.partImages,
                     location: value.location,
                     boxNumber: value.boxNumber,
-                    color: value.color === undefined ? {} : value.color,
+                    // Normalised on the way OUT as well as in, so a record written before
+                    // the migration still reaches the app as an array.
+                    color: toObjectArray(value.color),
                     placement: value.placement === undefined ? '' : value.placement,
                     condition: value.condition === undefined ? '' : value.condition,
                     conditionId: value.conditionId === undefined ? 0 : value.conditionId,
-                    texture: value.texture === undefined ? '' : value.texture,
+                    texture: toStringArray(value.texture),
+                    finish: toStringArray(value.finish),
+                    // null, not 0: the app has to tell "no weight recorded" from "0 lbs".
+                    lbs: value.lbs === undefined ? null : value.lbs,
+                    oz: value.oz === undefined ? null : value.oz,
+                    length: value.length === undefined ? null : value.length,
+                    width: value.width === undefined ? null : value.width,
+                    height: value.height === undefined ? null : value.height,
                     notes: value.notes,
                     createdDate: value.createdDate,
                     modifiedDate: value.modifiedDate,
@@ -887,11 +907,17 @@ export class productService {
                     partImages: element.partImages,
                     location: element.location,
                     boxNumber: element.boxNumber,
-                    color: element.color === undefined ? {} : element.color,
+                    color: toObjectArray(element.color),
                     placement: element.placement === undefined ? '' : element.placement,
                     condition: element.condition === undefined ? '' : element.condition,
                     conditionId: element.conditionId === undefined ? 0 : element.conditionId,
-                    texture: element.texture === undefined ? '' : element.texture,
+                    texture: toStringArray(element.texture),
+                    finish: toStringArray(element.finish),
+                    lbs: element.lbs === undefined ? null : element.lbs,
+                    oz: element.oz === undefined ? null : element.oz,
+                    length: element.length === undefined ? null : element.length,
+                    width: element.width === undefined ? null : element.width,
+                    height: element.height === undefined ? null : element.height,
                     notes: element.notes,
                     createdDate: element.createdDate,
                     modifiedDate: element.modifiedDate,
@@ -1165,12 +1191,18 @@ export class productService {
                 partImages: userInfo.partImages,
                 location: userInfo.location,
                 boxNumber: userInfo.boxNumber,
-                color: userInfo.color,
+                // The SAME endpoint reaches here when the part number already exists and
+                // the quantities are merged, so these have to be normalised in both
+                // places - otherwise adding to an existing part writes the old shape
+                // straight back over a migrated record.
+                color: toObjectArray(userInfo.color),
                 placement: userInfo.placement.replace(/\s?$/, ''),
                 condition: userInfo.condition,
                 conditionId: userInfo.conditionId,
                 notes: userInfo.notes,
-                texture: userInfo.texture,
+                texture: toStringArray(userInfo.texture),
+                finish: toStringArray(userInfo.finish),
+                ...measurementFields(userInfo),
                 // relistFlag: color,
                 modifiedDate: getDate(),
                 serialNumber: userInfo.serialNumber ? userInfo.serialNumber : (postclapLists.serialNumber ? postclapLists.serialNumber : 'NA'),

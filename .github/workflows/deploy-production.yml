@@ -49,6 +49,10 @@ jobs:
         run: npm run build
       - name: Check environment profile guards
         run: npm run env:check
+      # Runs against dist/, the same file the data migration loads. If these drift,
+      # the migration converts a row one way and the service reads it another.
+      - name: Check part-field normalising
+        run: npm run check:partfields
 
       - name: Assemble deploy payload
         run: |

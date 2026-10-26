@@ -52,6 +52,10 @@ jobs:
       # accept the production scraper. Pure: no credentials, nothing contacted.
       - name: Check environment profile guards
         run: npm run env:check
+      # Runs against dist/, the same file the data migration loads. If these drift,
+      # the migration converts a row one way and the service reads it another.
+      - name: Check part-field normalising
+        run: npm run check:partfields
 
       # `npm test` is NOT a gate. The two spec files are the `nest g` scaffolding tests
       # (app.controller.spec.ts, product.controller.spec.ts); they instantiate a
