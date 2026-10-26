@@ -1075,7 +1075,18 @@ export class productService {
             throw await new HttpException(AUTO_ERRORMSG.POST_JUNK_EXIST, HttpStatus.NOT_FOUND);
         console.log('postclapLists', postclapLists.status);
 
-        return getSuccess(postclapLists);
+        // This returns the raw document, so without normalising here the detail screen
+        // would get a bare string for any record the migration has not converted while
+        // /product/list returns an array for the same part. Same record, two shapes,
+        // depending which screen you opened.
+        const detail: any = typeof (postclapLists as any).toObject === 'function'
+            ? (postclapLists as any).toObject()
+            : postclapLists;
+        detail.color = toObjectArray(detail.color);
+        detail.texture = toStringArray(detail.texture);
+        detail.finish = toStringArray(detail.finish);
+
+        return getSuccess(detail);
     }
 
     async getBoxNo(userId: string) {
@@ -1117,6 +1128,10 @@ export class productService {
 
 
     async updateLocation(userInfo: any, userId: string) {
+        // Same shape check as addProduct. Without it a payload rejected on create would
+        // be accepted on edit, which is the more common path of the two.
+        validatePartFields(userInfo);
+
         var new1 = await this.usersService.ValidateUser(userId);
         console.log('login', new1);
         var list;
