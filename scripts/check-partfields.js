@@ -22,7 +22,7 @@ if (!fs.existsSync(DIST)) {
   console.error(`Build output not found: ${DIST}\nRun \`npm run build\` first.`);
   process.exit(1);
 }
-const { toStringArray, toObjectArray, measurementFields, validatePartFields, deriveFieldChanges } = require(DIST);
+const { toStringArray, toObjectArray, measurementFields, validatePartFields, deriveFieldChanges, numberOrZero } = require(DIST);
 
 const eq = (a, b) => JSON.stringify(a) === JSON.stringify(b);
 let failed = 0;
@@ -94,6 +94,21 @@ check('a key not sent is left alone, not cleared', d({ lbs: 2, finish: ['Painted
 check('an explicit clear is recorded', d({ finish: ['Painted'] }, { finish: [] }), ['12:Painted -> NA']);
 check('Height (capital) maps to the Height entry', d({}, { Height: 4 }), ['17:NA -> 4']);
 check('no previous record at all', d(null, { oz: 8 }), ['14:NA -> 8']);
+
+console.log('');
+console.log('— measurements in a response: 0, never null —');
+check('absent becomes 0', numberOrZero(undefined), 0);
+check('null becomes 0', numberOrZero(null), 0);
+check('empty string becomes 0', numberOrZero(''), 0);
+check('a real zero stays 0', numberOrZero(0), 0);
+check('a value passes through', numberOrZero(2), 2);
+check('a numeric string is coerced', numberOrZero('8'), 8);
+check('a decimal is truncated', numberOrZero(2.7), 2);
+
+// The pair that must NOT be conflated: a response shows 0 for both, but STORAGE keeps
+// them apart - an omitted key stays absent in the document rather than being set to 0,
+// which is what lets the activity log say "NA -> 2" rather than "0 -> 2".
+check('storage still omits a key the request did not send', measurementFields({ lbs: 2 }), { lbs: 2 });
 
 if (failed) { console.error(`\n${failed} check(s) failed.`); process.exit(1); }
 console.log('\nAll part-field checks pass.');

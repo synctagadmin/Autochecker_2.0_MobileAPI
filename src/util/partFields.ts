@@ -190,3 +190,20 @@ export function deriveFieldChanges(before: any, after: any): ActivityChange[] {
   }
   return out;
 }
+
+/**
+ * A measurement for a RESPONSE: 0 when nothing is recorded.
+ *
+ * The API returns 0 rather than null for an unrecorded weight or dimension, so every
+ * field in a product row has a value of its own type and no client has to guard for
+ * null. The trade-off is deliberate and worth stating: a part weighing 0 lbs and a
+ * part whose weight nobody has entered look identical on the wire.
+ *
+ * Storage keeps the distinction - measurementFields() omits a key the request did not
+ * send, so an absent value is absent in the document rather than being written as 0,
+ * and the activity log still reports "NA -> 2" the first time one is set.
+ */
+export function numberOrZero(value: any): number {
+  const n = toInt(value);
+  return n === undefined ? 0 : n;
+}

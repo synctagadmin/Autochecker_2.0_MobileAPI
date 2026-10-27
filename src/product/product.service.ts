@@ -8,7 +8,7 @@ import { AUTO_ERRORMSG, SPARK_NOTIFY, stockHistoryMsg, colorCode } from 'src/uti
 import { BASE64String, encryptDataAccount, getDate, getSuccess, randomString, sleep } from '../util/utils';
 
 import { decryptData, encryptData } from '../util/utils';
-import { toStringArray, toObjectArray, measurementFields, validatePartFields, deriveFieldChanges } from '../util/partFields';
+import { toStringArray, toObjectArray, measurementFields, validatePartFields, deriveFieldChanges, numberOrZero } from '../util/partFields';
 
 import { SettingService } from 'src/setting/setting.service';
 import { UsersService } from 'src/users/users.service';
@@ -550,12 +550,14 @@ export class productService {
                     conditionId: value.conditionId === undefined ? 0 : value.conditionId,
                     texture: toStringArray(value.texture),
                     finish: toStringArray(value.finish),
-                    // null, not 0: the app has to tell "no weight recorded" from "0 lbs".
-                    lbs: value.lbs === undefined ? null : value.lbs,
-                    oz: value.oz === undefined ? null : value.oz,
-                    length: value.length === undefined ? null : value.length,
-                    width: value.width === undefined ? null : value.width,
-                    height: value.height === undefined ? null : value.height,
+                    // 0, never null - every field in a row carries a value of its own type,
+                    // so no client has to guard for null. Storage keeps the distinction:
+                    // a key the request omits is absent in the document, not written as 0.
+                    lbs: numberOrZero(value.lbs),
+                    oz: numberOrZero(value.oz),
+                    length: numberOrZero(value.length),
+                    width: numberOrZero(value.width),
+                    height: numberOrZero(value.height),
                     notes: value.notes,
                     createdDate: value.createdDate,
                     modifiedDate: value.modifiedDate,
@@ -913,11 +915,11 @@ export class productService {
                     conditionId: element.conditionId === undefined ? 0 : element.conditionId,
                     texture: toStringArray(element.texture),
                     finish: toStringArray(element.finish),
-                    lbs: element.lbs === undefined ? null : element.lbs,
-                    oz: element.oz === undefined ? null : element.oz,
-                    length: element.length === undefined ? null : element.length,
-                    width: element.width === undefined ? null : element.width,
-                    height: element.height === undefined ? null : element.height,
+                    lbs: numberOrZero(element.lbs),
+                    oz: numberOrZero(element.oz),
+                    length: numberOrZero(element.length),
+                    width: numberOrZero(element.width),
+                    height: numberOrZero(element.height),
                     notes: element.notes,
                     createdDate: element.createdDate,
                     modifiedDate: element.modifiedDate,
@@ -1085,6 +1087,8 @@ export class productService {
         detail.color = toObjectArray(detail.color);
         detail.texture = toStringArray(detail.texture);
         detail.finish = toStringArray(detail.finish);
+        // Same zero-default as the list response, so a part looks the same on both screens.
+        for (const f of ['lbs', 'oz', 'length', 'width', 'height']) detail[f] = numberOrZero(detail[f]);
 
         return getSuccess(detail);
     }
