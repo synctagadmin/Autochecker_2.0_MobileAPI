@@ -22,7 +22,7 @@ if (!fs.existsSync(DIST)) {
   console.error(`Build output not found: ${DIST}\nRun \`npm run build\` first.`);
   process.exit(1);
 }
-const { toStringArray, toObjectArray, measurementFields, validatePartFields, deriveFieldChanges, numberOrZero } = require(DIST);
+const { toStringArray, toObjectArray, measurementFields, validatePartFields, deriveFieldChanges, numberOrZero, toNumber } = require(DIST);
 
 const eq = (a, b) => JSON.stringify(a) === JSON.stringify(b);
 let failed = 0;
@@ -66,7 +66,7 @@ check('Height (capital) is stored as height', measurementFields({ Height: 4 }), 
 check('height (lowercase) works too', measurementFields({ height: 4 }), { height: 4 });
 check('lowercase wins when both are sent', measurementFields({ height: 9, Height: 4 }), { height: 9 });
 check('numeric strings are coerced', measurementFields({ lbs: '2', oz: '8' }), { lbs: 2, oz: 8 });
-check('decimals are truncated to int', measurementFields({ lbs: 2.7 }), { lbs: 2 });
+check('decimals are KEPT, not truncated', measurementFields({ lbs: 2.7 }), { lbs: 2.7 });
 check('absent keys stay absent, not zero', measurementFields({}), {});
 check('zero is kept, not treated as absent', measurementFields({ oz: 0 }), { oz: 0 });
 check('all five together', measurementFields({ lbs: 2, oz: 8, length: 12, width: 6, Height: 4 }), { lbs: 2, oz: 8, length: 12, width: 6, height: 4 });
@@ -103,7 +103,17 @@ check('empty string becomes 0', numberOrZero(''), 0);
 check('a real zero stays 0', numberOrZero(0), 0);
 check('a value passes through', numberOrZero(2), 2);
 check('a numeric string is coerced', numberOrZero('8'), 8);
-check('a decimal is truncated', numberOrZero(2.7), 2);
+check('a decimal is kept', numberOrZero(2.7), 2.7);
+
+console.log('');
+console.log('— measurements are decimal, not integer —');
+check('half an inch survives', toNumber(12.5), 12.5);
+check('a quarter inch survives', toNumber(6.25), 6.25);
+check('a decimal string coerces', toNumber('8.5'), 8.5);
+check('a float artifact is rounded away', toNumber(12.300000000000001), 12.3);
+check('an integer is unchanged', toNumber(2), 2);
+check('decimals reach storage', measurementFields({ length: 12.5, width: 6.25, Height: 4 }), { length: 12.5, width: 6.25, height: 4 });
+check('the activity log shows the decimal', deriveFieldChanges({ length: 12 }, { length: 12.5 }).map((e) => e.value), ['12 -> 12.5']);
 
 // The pair that must NOT be conflated: a response shows 0 for both, but STORAGE keeps
 // them apart - an omitted key stays absent in the document rather than being set to 0,

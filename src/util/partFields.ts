@@ -42,16 +42,25 @@ export function toObjectArray(value: any): ColorOption[] {
 }
 
 /**
- * Anything -> a non-negative integer, or undefined when not supplied.
+ * Anything -> a number rounded to 2 decimal places, or undefined when not supplied.
+ *
+ * DECIMAL, not integer. A box measured at 12.5 inches has to stay 12.5: truncating it
+ * loses half an inch silently, and these values feed shipping sizes, so the mistake
+ * surfaces as a wrong quote rather than an error anybody can see.
+ *
+ * Rounding to 2 places is a guard, not a precision limit. Real dimensions land on .5,
+ * .25 and .75, which are exact in binary floating point - but a value arriving as
+ * 12.300000000000001 from a client's own arithmetic would otherwise be stored that way
+ * and then shown to someone.
  *
  * undefined (not zero) for absent, so an app that does not send weights yet leaves the
  * stored value alone rather than overwriting it with 0.
  */
-export function toInt(value: any): number | undefined {
+export function toNumber(value: any): number | undefined {
   if (value === undefined || value === null || value === '') return undefined;
   const n = Number(value);
   if (!Number.isFinite(n)) return undefined;
-  return Math.trunc(n);
+  return Math.round(n * 100) / 100;
 }
 
 /** The five measurement fields, normalised. Keys absent from the input stay absent. */
@@ -67,7 +76,7 @@ export function measurementFields(input: any): Record<string, number> {
   ];
   const out: Record<string, number> = {};
   for (const [key, raw] of sources) {
-    const n = toInt(raw);
+    const n = toNumber(raw);
     if (n !== undefined) out[key] = n;
   }
   return out;
@@ -159,7 +168,7 @@ function display(value: any, list: boolean): string {
     const items = toStringArray(value);
     return items.length ? items.join(',') : 'NA';
   }
-  const n = toInt(value);
+  const n = toNumber(value);
   return n === undefined ? 'NA' : String(n);
 }
 
@@ -204,6 +213,6 @@ export function deriveFieldChanges(before: any, after: any): ActivityChange[] {
  * and the activity log still reports "NA -> 2" the first time one is set.
  */
 export function numberOrZero(value: any): number {
-  const n = toInt(value);
+  const n = toNumber(value);
   return n === undefined ? 0 : n;
 }
