@@ -5,12 +5,12 @@
  * settings.OtherInfo.Activity — add the activity types that can now be recorded.
  *
  * This list does NOT gate what the history can store: createActivityLog records any
- * {Id, name, value} it is handed. It drives the FILTER on the history screen, which is
- * why the app's Id 11 (SerialNumber) records perfectly well while being absent here -
- * you just cannot filter by it. This adds that one, plus the six fields updateProduct
- * now derives on the server.
+ * {Id, name, value} it is handed. It drives the FILTER on the history screen - a type
+ * missing from here records perfectly well, it just cannot be filtered by. So a row is
+ * only worth adding when someone should be able to filter on it.
  *
- *   11  SerialNumber   already sent by the app, never listed
+ * The six fields updateProduct now derives on the server:
+ *
  *   12  Finish
  *   13  Lbs
  *   14  Oz
@@ -33,8 +33,20 @@ const path = require('path');
 const { MongoClient } = require('mongodb');
 require('dotenv').config();
 
+/*
+ * Id 11 is NOT here, and that is deliberate.
+ *
+ * An earlier version of this script added it as `SerialNumber`, on the reasoning that
+ * the app records Id 11 but the list never offered it. The reasoning was wrong twice
+ * over. The team had removed that row from the live list ON PURPOSE, and id 11 has since
+ * been reused: `SerialNumber` was written up to June 2025 (37 rows) and `Stock Notes`
+ * from June 2025 onward (35 rows, still being written). So re-adding it would have put
+ * back a row someone had deliberately taken out, under a name that no longer describes
+ * what the id records.
+ *
+ * Do not add it back without asking. The absence is a decision, not an oversight.
+ */
 const WANT = [
-  { Id: 11, name: 'SerialNumber', value: '' },
   { Id: 12, name: 'Finish', value: '' },
   { Id: 13, name: 'Lbs', value: '' },
   { Id: 14, name: 'Oz', value: '' },
