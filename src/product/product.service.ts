@@ -8,7 +8,7 @@ import { AUTO_ERRORMSG, SPARK_NOTIFY, stockHistoryMsg, colorCode } from 'src/uti
 import { BASE64String, encryptDataAccount, getDate, getSuccess, randomString, sleep } from '../util/utils';
 
 import { decryptData, encryptData } from '../util/utils';
-import { toStringArray, toObjectArray, measurementFields, validatePartFields, deriveFieldChanges, numberOrZero } from '../util/partFields';
+import { toStringArray, toObjectArray, measurementFields, validatePartFields, deriveFieldChanges, mergeActivityChanges, numberOrZero } from '../util/partFields';
 
 import { SettingService } from 'src/setting/setting.service';
 import { UsersService } from 'src/users/users.service';
@@ -1229,16 +1229,20 @@ export class productService {
                 availableQuantity: +postclapLists.availableQuantity + (+userInfo.partQuantity),
             }).exec();
 
-            // The app sends `changes` for the eleven field types it knows about. finish and
-            // the five measurements are derived here from the record as it was BEFORE this
-            // update, so they reach the history without waiting for an app release - and so
-            // a client that does not send them cannot leave a gap in a part's history.
+            // The app sends its own `changes`; finish and the five measurements are also
+            // derived here from the record as it was BEFORE this update, so they reach the
+            // history without waiting for an app release and a client that does not send
+            // them cannot leave a gap.
+            //
+            // These two overlap - the app sends finish as well - and concatenating them
+            // wrote that change twice, under two different activityIds. mergeActivityChanges
+            // drops the app's copy of any field the server derives; see partFields.ts for
+            // why the server's Id has to be the one that survives.
             //
             // postclapLists is the pre-update document; it must stay read here, above the
             // updateOne, or the comparison is against the values just written.
-            const appChanges = Array.isArray(userInfo.changes) ? userInfo.changes : [];
             this.createActivityLog(
-                [...appChanges, ...deriveFieldChanges(postclapLists, userInfo)],
+                mergeActivityChanges(userInfo.changes, deriveFieldChanges(postclapLists, userInfo)),
                 userId, userDetil.displayName, userInfo.id,
             );
             if (userInfo.partQuantity && +userInfo.partQuantity != 0) {

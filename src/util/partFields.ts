@@ -149,9 +149,12 @@ export interface ActivityChange {
 }
 
 /**
- * Ids continue from the eleven the app already uses (1-11, ending at SerialNumber).
- * Note 11 is not in settings.OtherInfo.Activity either - that list only drives the
- * filter dropdown, it does not gate what can be recorded.
+ * Ids continue past the ones the app already uses.
+ *
+ * These Ids are the server's, and where the app disagrees the server wins - see
+ * mergeActivityChanges below for why that is not merely a preference. The app numbers
+ * Finish 13, which is Lbs here, so letting the app's number through would file Finish
+ * rows under Lbs and make both filters wrong.
  */
 const DERIVED_FIELDS: Array<{ Id: number; name: string; key: string; list: boolean }> = [
   { Id: 12, name: 'Finish', key: 'finish', list: true },
@@ -176,6 +179,36 @@ function display(value: any, list: boolean): string {
  * One entry per field that actually changed. A key the request did not send means
  * "leave it alone", not "cleared", so it produces no entry.
  */
+/** The fields the SERVER records. An entry the app sends for one of these is dropped. */
+const DERIVED_NAMES = new Set(DERIVED_FIELDS.map((f) => f.name.toLowerCase()));
+
+/**
+ * One history row per change, however many copies arrive.
+ *
+ * The app sends its own `changes`, and these six fields are also derived here from the
+ * record as it was before the update. Finish is in BOTH, so concatenating the two wrote
+ * it twice - visible in the history as the same change a second apart in spelling,
+ * "Primer, Textured" from the app against "Primer,Textured" from here.
+ *
+ * The server's copy is the one kept, and not by preference. The app numbers Finish 13,
+ * which is Lbs in DERIVED_FIELDS, so the app's row lands under the wrong activityId:
+ * filtering Lbs returns Finish changes and filtering Finish misses them. Normalising
+ * here fixes both without waiting for an app release, and an app that keeps sending
+ * Finish is then harmless rather than damaging.
+ *
+ * Matched on NAME, because the Ids are exactly what the two sides disagree about.
+ */
+export function mergeActivityChanges(
+  appChanges: any,
+  derived: ActivityChange[],
+): ActivityChange[] {
+  const fromApp = Array.isArray(appChanges) ? appChanges : [];
+  const kept = fromApp.filter(
+    (c) => !DERIVED_NAMES.has(String(c?.name ?? '').trim().toLowerCase()),
+  );
+  return [...kept, ...derived];
+}
+
 export function deriveFieldChanges(before: any, after: any): ActivityChange[] {
   const out: ActivityChange[] = [];
   if (!after || typeof after !== 'object') return out;
