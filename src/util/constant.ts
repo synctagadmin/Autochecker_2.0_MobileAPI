@@ -54,8 +54,30 @@ export const SPARK_THREAD_STATUS = {
     LEFT: 3
 }
 
+/**
+ * The shared key the loader endpoints check before they will run
+ * (load.controller.ts compares it against the `key` on the request).
+ *
+ * It was a literal in this file, in a public repository, which made the check decorative:
+ * anyone reading the source could satisfy it. No fallback, for the same reason as
+ * JWT_SECRET - a deployment that falls back to the published value looks fixed and is not.
+ *
+ * Read through a getter rather than at module load. This file is imported by nearly every
+ * module here, some of them before app.module.ts's body runs dotenv.config(), and the
+ * loader only ever reads this per request - long after .env is in place either way.
+ */
 export const LOADER_KEY = {
-    KEY: "dHIk0UfDAi3PFOof",
+    get KEY(): string {
+        const key = process.env.LOADER_KEY;
+        if (!key) {
+            throw new Error(
+                'LOADER_KEY is not set. Put it in this repository\'s .env (local) or the ' +
+                'deployment\'s shared/.env at /var/www/autochecker/mobileapi/shared/.env. ' +
+                'See .env.example.',
+            );
+        }
+        return key;
+    },
 }
 
 export const stockHistoryMsg = {
