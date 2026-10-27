@@ -115,3 +115,78 @@ export function validatePartFields(input: any): void {
 
   if (bad.length) throw new BadRequestException(bad.join('; '));
 }
+
+/**
+ * Activity-log entries derived on the SERVER, for fields the mobile app does not
+ * report changes for.
+ *
+ * The history list is built from whatever the client sends in `changes` - it arrives
+ * pre-formatted as "before -> after" and the API only records it. That means a field
+ * the app does not know about is silently absent from a part's history, which is what
+ * happened to finish and the five measurements when they were added.
+ *
+ * Deriving them here instead of waiting for an app release also makes them impossible
+ * to skip: a client that forgets, or an older version still in the field, still
+ * produces a complete history.
+ *
+ * The existing eleven types are deliberately NOT derived - the app already sends them,
+ * and computing them here as well would log every change twice.
+ */
+export interface ActivityChange {
+  Id: number;
+  name: string;
+  value: string;
+  colorValue: any[];
+}
+
+/**
+ * Ids continue from the eleven the app already uses (1-11, ending at SerialNumber).
+ * Note 11 is not in settings.OtherInfo.Activity either - that list only drives the
+ * filter dropdown, it does not gate what can be recorded.
+ */
+const DERIVED_FIELDS: Array<{ Id: number; name: string; key: string; list: boolean }> = [
+  { Id: 12, name: 'Finish', key: 'finish', list: true },
+  { Id: 13, name: 'Lbs', key: 'lbs', list: false },
+  { Id: 14, name: 'Oz', key: 'oz', list: false },
+  { Id: 15, name: 'Length', key: 'length', list: false },
+  { Id: 16, name: 'Width', key: 'width', list: false },
+  { Id: 17, name: 'Height', key: 'height', list: false },
+];
+
+/** "NA" for absent, matching what the app sends for an empty previous value. */
+function display(value: any, list: boolean): string {
+  if (list) {
+    const items = toStringArray(value);
+    return items.length ? items.join(',') : 'NA';
+  }
+  const n = toInt(value);
+  return n === undefined ? 'NA' : String(n);
+}
+
+/**
+ * One entry per field that actually changed. A key the request did not send means
+ * "leave it alone", not "cleared", so it produces no entry.
+ */
+export function deriveFieldChanges(before: any, after: any): ActivityChange[] {
+  const out: ActivityChange[] = [];
+  if (!after || typeof after !== 'object') return out;
+  const measured = measurementFields(after);
+
+  for (const f of DERIVED_FIELDS) {
+    let next: any;
+    if (f.list) {
+      if (after[f.key] === undefined || after[f.key] === null) continue;
+      next = after[f.key];
+    } else {
+      if (!(f.key in measured)) continue;
+      next = measured[f.key];
+    }
+
+    const from = display(before ? before[f.key] : undefined, f.list);
+    const to = display(next, f.list);
+    if (from === to) continue;
+
+    out.push({ Id: f.Id, name: f.name, value: from + ' -> ' + to, colorValue: [] });
+  }
+  return out;
+}

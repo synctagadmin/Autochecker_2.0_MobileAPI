@@ -8,7 +8,7 @@ import { AUTO_ERRORMSG, SPARK_NOTIFY, stockHistoryMsg, colorCode } from 'src/uti
 import { BASE64String, encryptDataAccount, getDate, getSuccess, randomString, sleep } from '../util/utils';
 
 import { decryptData, encryptData } from '../util/utils';
-import { toStringArray, toObjectArray, measurementFields, validatePartFields } from '../util/partFields';
+import { toStringArray, toObjectArray, measurementFields, validatePartFields, deriveFieldChanges } from '../util/partFields';
 
 import { SettingService } from 'src/setting/setting.service';
 import { UsersService } from 'src/users/users.service';
@@ -1225,7 +1225,18 @@ export class productService {
                 availableQuantity: +postclapLists.availableQuantity + (+userInfo.partQuantity),
             }).exec();
 
-            this.createActivityLog(userInfo.changes, userId, userDetil.displayName, userInfo.id);
+            // The app sends `changes` for the eleven field types it knows about. finish and
+            // the five measurements are derived here from the record as it was BEFORE this
+            // update, so they reach the history without waiting for an app release - and so
+            // a client that does not send them cannot leave a gap in a part's history.
+            //
+            // postclapLists is the pre-update document; it must stay read here, above the
+            // updateOne, or the comparison is against the values just written.
+            const appChanges = Array.isArray(userInfo.changes) ? userInfo.changes : [];
+            this.createActivityLog(
+                [...appChanges, ...deriveFieldChanges(postclapLists, userInfo)],
+                userId, userDetil.displayName, userInfo.id,
+            );
             if (userInfo.partQuantity && +userInfo.partQuantity != 0) {
                 let trackHistory = await this.stockHistoryModel.create({
                     partNumberSubId: userInfo.id,
