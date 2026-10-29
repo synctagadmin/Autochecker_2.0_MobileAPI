@@ -35,7 +35,22 @@ import { ProductDetailsSchema } from 'src/product/product.model';
         from: 'autocheckerparts@gmail.com',
       },
       template: {
-        dir: './src/users/templates',
+        /**
+         * Beside the compiled module, not relative to wherever the process was started.
+         *
+         * This was './src/users/templates', which Handlebars resolves against
+         * process.cwd(). The deploy ships `dist/` and nothing else, so in a release
+         * there is no `src/` at all and every email died on
+         * `ENOENT: open 'src/users/templates/confirmation.hbs'` - reaching the caller as
+         * "Cannot destructure property 'templateName' of 'precompile(...)'", because the
+         * adapter does not check that the read succeeded.
+         *
+         * __dirname is right in both places: `<repo>/src/users` when running from
+         * source, `<release>/dist/users` once built - and nest-cli.json copies the .hbs
+         * to `dist/users/templates` to match. Its outDir said `dist/src` while the code
+         * compiles to `dist/users`, so the template was landing in a tree nothing read.
+         */
+        dir: join(__dirname, 'templates'),
         adapter: new HandlebarsAdapter(), // or new PugAdapter() or new EjsAdapter()
         options: {
           strict: true,
