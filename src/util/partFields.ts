@@ -120,6 +120,14 @@ export function validatePartFields(input: any): void {
     if (v === undefined || v === null || v === '') continue;
     if (!Number.isFinite(Number(v))) bad.push(`${key} must be a number`);
     else if (Number(v) < 0) bad.push(`${key} must not be negative`);
+    // eBay's WeightMinor is 0-15: sixteen ounces is a pound, and a listing carries
+    // the two as separate fields. Anything above 15 is not a weight eBay can hold,
+    // so it is normalised or refused on the way out and our record stops matching
+    // the listing. The admin panel already refuses it (ShippingDetailsTab.tsx,
+    // `ozInvalid = ozNum > 15`); the phone did not, which is how part 21997867 came
+    // to be stored as 25 lbs 35 oz - a weight that actually means 27 lbs 3 oz, and
+    // matched nothing on eBay.
+    else if (key === 'oz' && Number(v) > 15) bad.push('oz must be 15 or less - 16 oz is a pound');
   }
 
   if (bad.length) throw new BadRequestException(bad.join('; '));
