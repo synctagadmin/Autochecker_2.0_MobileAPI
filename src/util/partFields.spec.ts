@@ -1,4 +1,4 @@
-import { mergeActivityChanges } from './partFields';
+import { mergeActivityChanges, validatePartFields } from './partFields';
 
 /**
  * One history row per change.
@@ -87,5 +87,44 @@ describe('merging the app changes with the derived ones', () => {
     const merged = mergeActivityChanges(noisy, []);
 
     expect(merged).toEqual([{ Id: 1, name: 'Title', value: 'a -> b' }]);
+  });
+});
+
+/**
+ * Ounces above 15 are not a weight eBay can hold.
+ *
+ * A listing carries WeightMajor (lbs) and WeightMinor (oz) separately, and sixteen
+ * ounces is a pound. Part 21997867 was stored from the phone as 25 lbs 35 oz, which
+ * means 27 lbs 3 oz; the listing held 14 lbs 1 oz and the two screens disagreed ever
+ * after. The admin panel already refuses it (ShippingDetailsTab.tsx, ozInvalid).
+ */
+describe('package weight', () => {
+  const ok = (input: any) => expect(() => validatePartFields(input)).not.toThrow();
+  const rejects = (input: any, msg: string | RegExp) =>
+    expect(() => validatePartFields(input)).toThrow(msg);
+
+  it('refuses ounces above 15', () => {
+    rejects({ lbs: 25, oz: 35 }, /oz must be 15 or less/);
+  });
+
+  it('accepts the boundary', () => {
+    ok({ lbs: 25, oz: 15 });
+  });
+
+  it('accepts no ounces at all', () => {
+    ok({ lbs: 25, oz: 0 });
+    ok({ lbs: 25 });
+    ok({ lbs: 25, oz: '' });
+  });
+
+  /** The bound is on ounces only - pounds have no such ceiling here. */
+  it('leaves pounds alone', () => {
+    ok({ lbs: 70, oz: 2 });
+  });
+
+  /** The existing rules still apply. */
+  it('still refuses a negative or non-numeric weight', () => {
+    rejects({ oz: -1 }, /must not be negative/);
+    rejects({ oz: 'heavy' }, /must be a number/);
   });
 });
