@@ -6,7 +6,7 @@
       "assets": [
         {
           "include": "users/templates/*.hbs",
-          "outDir": "dist/src"
+          "outDir": "dist"
         }
       ],
       "watchAssets": true
