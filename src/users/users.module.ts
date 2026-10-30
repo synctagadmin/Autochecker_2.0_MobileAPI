@@ -51,7 +51,36 @@ import { ProductDetailsSchema } from 'src/product/product.model';
          * compiles to `dist/users`, so the template was landing in a tree nothing read.
          */
         dir: join(__dirname, 'templates'),
-        adapter: new HandlebarsAdapter(), // or new PugAdapter() or new EjsAdapter()
+        /**
+         * Do NOT fetch stylesheets over the network while building an email.
+         *
+         * The adapter runs every rendered template through css-inline, and css-inline
+         * downloads any <link rel=stylesheet> it finds. confirmation.hbs links three:
+         * bootstrap from cdn.jsdelivr.net and two from fonts.googleapis.com. When the
+         * box cannot reach them the call throws - and the adapter catches it with an
+         * EMPTY catch block:
+         *
+         *     try { mail.data.html = inline(rendered, this.config.inlineCssOptions); }
+         *     catch (e) { }
+         *     return callback();
+         *
+         * so `html` is never assigned, nodemailer sends a message with no body, and the
+         * service logs "Email sent sucessfully". That is the empty forgot-password mail:
+         * subject present, body blank, nothing in the logs. Reproduced 2026-10-30 by
+         * curling the endpoint on the production box - the template was present and
+         * valid, the context complete, and the mail still arrived empty.
+         *
+         * It also explains why it looked intermittent and why staging was fine: it is a
+         * network call per email, on a box whose egress is restricted.
+         *
+         * Local <style> is still inlined, so the template keeps the styling it carries
+         * itself. The remote links were never reliable in email anyway - most clients
+         * strip <link> - and a body that always arrives beats one that is sometimes
+         * prettier.
+         */
+        adapter: new HandlebarsAdapter(undefined, {
+          inlineCssOptions: { load_remote_stylesheets: false },
+        }),
         options: {
           strict: true,
         },
