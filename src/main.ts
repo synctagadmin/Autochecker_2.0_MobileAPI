@@ -1,3 +1,17 @@
+/**
+ * Sentry FIRST, before every other import.
+ *
+ * The SDK instruments http and mongoose by patching those modules, and whatever is
+ * loaded ahead of this line is never instrumented - ./app.module is what pulls Mongoose
+ * in, so the order here is load-bearing rather than tidiness. instrument.ts loads dotenv
+ * itself for the same reason: app.module's own dotenv.config() runs too late to put
+ * SENTRY_DSN in the environment for this.
+ *
+ * A no-op unless SENTRY_DSN and SENTRY_ENVIRONMENT are both set.
+ */
+import './instrument';
+import { reportProcessFault } from './observability/report';
+import { SentryExceptionFilter } from './observability/sentry-exception.filter';
 import { BadRequestException, ValidationError, ValidationPipe } from '@nestjs/common';
 import { HttpAdapterHost, NestFactory } from '@nestjs/core';
 import { DocumentBuilder, SwaggerModule } from '@nestjs/swagger';
@@ -27,6 +41,32 @@ async function bootstrap() {
       },
     })
   );
+
+  /**
+   * Report faults on their way to a response.
+   *
+   * BaseExceptionFilter needs the http adapter, which is why HttpAdapterHost was already
+   * imported here. The filter delegates to it, so no response changes shape.
+   */
+  app.useGlobalFilters(new SentryExceptionFilter(app.get(HttpAdapterHost).httpAdapter));
+
+  /**
+   * The faults that never reach a filter.
+   *
+   * This service has 17 `forEach(async ...)` call sites: a rejection inside one happens
+   * after the response has gone, so nothing is returned to the phone and nothing is
+   * logged anywhere a person looks. The process is deliberately NOT killed - one bad row
+   * in a background pass should not take every concurrent user's request with it - but
+   * surviving silently is how those bugs stayed invisible.
+   */
+  process.on('unhandledRejection', (reason) => {
+    console.error('unhandledRejection:', reason);
+    reportProcessFault(reason, 'unhandledRejection');
+  });
+  process.on('uncaughtException', (err) => {
+    console.error('uncaughtException:', err);
+    reportProcessFault(err, 'uncaughtException');
+  });
 
   const document = SwaggerModule.createDocument(app, config);
   SwaggerModule.setup('api', app, document);

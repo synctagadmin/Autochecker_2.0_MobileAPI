@@ -11,6 +11,20 @@
     "sourceMap": true,
     "outDir": "./dist",
     "baseUrl": "./",
-    "incremental": true
+    "incremental": true,
+    /*
+     * Do not type-check third-party .d.ts files.
+     *
+     * @sentry/node pulls @opentelemetry/instrumentation-pg -> @types/pg ->
+     * pg-protocol, whose declarations use Buffer<ArrayBufferLike> - syntax that needs a
+     * newer @types/node than this project pins (14.18, with TypeScript 4.9). Nothing
+     * here imports pg; it arrives as a transitive type-only dependency and fails the
+     * build on declarations we neither wrote nor use.
+     *
+     * This only skips declaration FILES. Our own code is type-checked exactly as
+     * before, and both CI steps - typecheck and build - go green again. It is the
+     * setting Nest ships on in its own scaffold.
+     */
+    "skipLibCheck": true
   }
 }
