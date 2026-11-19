@@ -8,6 +8,7 @@ import { AUTO_ERRORMSG, SPARK_NOTIFY, stockHistoryMsg, colorCode } from 'src/uti
 import { BASE64String, encryptDataAccount, getDate, getSuccess, randomString, sleep } from '../util/utils';
 
 import { decryptData, encryptData } from '../util/utils';
+import { hasScrapeTitle, savedScrapeHasTitle, SAVED_SCRAPE_LOOKBACK } from './scrape-title';
 import { toStringArray, toObjectArray, measurementFields, validatePartFields, deriveFieldChanges, mergeActivityChanges, numberOrZero } from '../util/partFields';
 
 import { SettingService } from 'src/setting/setting.service';
@@ -366,10 +367,14 @@ export class productService {
             ]
         };
 
-        const postclapLists = await this.ProductScrapDetail.countDocuments({
+        // Count only saved scrapes WITH A TITLE. Every caller treats a non-zero answer as
+        // "already scraped" and turns the part green, so an untitled scrape saved before
+        // that rule must not count. See scrape-title.ts.
+        const savedScrapes = await this.ProductScrapDetail.find({
             ...partNumberCond,
             brand: brand
-        });
+        }).select({ OtherData: 1 }).sort({ createdDate: -1 }).limit(SAVED_SCRAPE_LOOKBACK).exec();
+        const postclapLists = savedScrapes.filter((row) => savedScrapeHasTitle(row?.OtherData)).length;
 
         return postclapLists;
     };
@@ -395,7 +400,9 @@ export class productService {
             console.log('finaldata', data && data.ListingDetails && data.ListingDetails.PartNumber ? data.ListingDetails.PartNumber : 'No Partnumber found');
 
             if (encrypt.length > 576) {
-                if (data.ListingDetails.PartNumber != 'NA') {
+                // No title, no green: an untitled reply is treated like an empty one.
+                // See scrape-title.ts.
+                if (data?.ListingDetails?.PartNumber != 'NA' && hasScrapeTitle(data)) {
                     var user = await this.ProductScrapDetail.create({
                         status: 1,
                         brand: brand,

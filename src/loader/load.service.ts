@@ -14,6 +14,7 @@ import { AUTO_ERRORMSG, SPARK_NOTIFY } from 'src/util/constant';
 import { decryptData, encryptData, encryptDataAccount, getDate, getSuccess } from 'src/util/utils';
 import * as dotenv from 'dotenv';
 import { productService } from 'src/product/product.service';
+import { savedScrapeHasTitle, SAVED_SCRAPE_LOOKBACK } from 'src/product/scrape-title';
 import { SettingService } from 'src/setting/setting.service';
 var fs = require('fs');
 dotenv.config();
@@ -52,7 +53,10 @@ export class LoadService {
           console.log('ifSuperSedeedExist: ', ifSuperSedeedExist);
 
           if (ifSuperSedeedExist != null) {
-            let postclapLists = await this.ProductScrapDetail.findOne({ partNumber: ifSuperSedeedExist.BasePart, brand: value.partMake })
+            // The base part counts as scraped only if a saved scrape of it has a title -
+            // the branch below turns this part green. See scrape-title.ts.
+            let savedBaseScrapes = await this.ProductScrapDetail.find({ partNumber: ifSuperSedeedExist.BasePart, brand: value.partMake }).sort({ createdDate: -1 }).limit(SAVED_SCRAPE_LOOKBACK)
+            let postclapLists = savedBaseScrapes.find((row) => savedScrapeHasTitle(row?.OtherData)) ?? null
             console.log('scrapExist: ', postclapLists);
 
             if (postclapLists != null) {
@@ -99,14 +103,18 @@ export class LoadService {
             console.log('scrapExist: ', scrapExist);
             if(scrapExist == 0 && this.containsOnlyAlphabets(value.partNumberTrim.substring(value.partNumberTrim.length-2))){
               let colorSkippedPart = value.partNumberTrim.substring(0,value.partNumberTrim.length-2)
-              scrapExist = await this.ProductScrapDetail.find({
-                  partNumber: new RegExp(`^${colorSkippedPart}[A-Za-z]{2}$`, "i")
-              }).count()
+              // Only a SAME-BRAND colour variant whose saved scrape has a title, decoded to an
+              // object. This used to accept any brand and any scrape, and handed saveScrap the
+              // decrypted TEXT - saveScrap reads data.ListingDetails, which a string does not
+              // have, so it threw and the whole run failed. See scrape-title.ts.
+              let variantScrapes = await this.ProductScrapDetail.find({
+                  partNumber: new RegExp(`^${colorSkippedPart}[A-Za-z]{2}$`, "i"),
+                  brand: value.partMake
+              }).sort({createdDate:-1}).limit(SAVED_SCRAPE_LOOKBACK)
+              let sameColorPart = variantScrapes.find((row) => savedScrapeHasTitle(row?.OtherData))
+              scrapExist = sameColorPart ? 1 : 0
               if(scrapExist > 0){
-                let sameColorPart = await this.ProductScrapDetail.findOne({
-                    partNumber: new RegExp(`^${colorSkippedPart}[A-Za-z]{2}$`, "i")
-                }).sort({createdDate:-1});
-                let sameColorExistscrapData = decryptData(sameColorPart.OtherData)
+                let sameColorExistscrapData = JSON.parse(decryptData(sameColorPart.OtherData))
                 await this.ProductService.saveScrap(sameColorExistscrapData,value.partMake,value.partNumberTrim,status)
                 await this.scrapPrepossing(value.partNumberTrim, sameColorExistscrapData);
               }
