@@ -9,6 +9,7 @@ import { BASE64String, encryptDataAccount, getDate, getSuccess, randomString, sl
 
 import { decryptData, encryptData } from '../util/utils';
 import { hasScrapeTitle, savedScrapeHasTitle, SAVED_SCRAPE_LOOKBACK } from './scrape-title';
+import { isPartId } from './part-id';
 import { toStringArray, toObjectArray, measurementFields, validatePartFields, deriveFieldChanges, mergeActivityChanges, numberOrZero } from '../util/partFields';
 
 import { SettingService } from 'src/setting/setting.service';
@@ -1433,8 +1434,12 @@ export class productService {
 
 
         var skip = ((searchText.paginator.nextPage * searchText.paginator.pageSize) - searchText.paginator.pageSize);
-        const postclapLists = await this.ProductActivityLog.find({ activityId: room_condition, partId: searchText.id })
-            .sort({ createdDate: 'desc' }).skip(skip).limit(searchText.paginator.pageSize + 1);
+        // A part with no id has no activity: an empty page, through the same paging below,
+        // rather than a CastError on partId "" (Sentry AUTOCHECKER-5, part-id.ts).
+        const postclapLists: any[] = isPartId(searchText.id)
+            ? await this.ProductActivityLog.find({ activityId: room_condition, partId: searchText.id })
+                .sort({ createdDate: 'desc' }).skip(skip).limit(searchText.paginator.pageSize + 1)
+            : [];
         let lastPaginateKey = 0;
         let previousPaginateKey = 0;
 
@@ -1480,7 +1485,11 @@ export class productService {
     async getActivityStatus(data: any, userId: string) {
         var new1 = await this.usersService.ValidateUser(userId);
         console.log('hi', new1);
-        let postclapLists = await this.ProductActivityLog.find({ partId: data.partId }).select({ "boxNumber": 1 }).count().exec();
+        // A part with no id (not saved yet) has no activity. Querying with "" threw a
+        // CastError and failed the request (Sentry AUTOCHECKER-5) - see part-id.ts.
+        let postclapLists = isPartId(data?.partId)
+            ? await this.ProductActivityLog.find({ partId: data.partId }).select({ "boxNumber": 1 }).count().exec()
+            : 0;
         console.log('hi', postclapLists);
 
         return getSuccess(postclapLists);
